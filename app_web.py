@@ -26,26 +26,29 @@ st.title("🚀 Victor Trader IA")
 st.subheader("Sistema Quantitativo Profissional")
 
 if st.button("📊 DISPARAR ANÁLISE COMPLETA", use_container_width=True):
-    with st.spinner("IA analisando dados..."):
+    with st.spinner("IA analisando dados e tendências..."):
         try:
             executar_analise_total()
-            st.success("✅ Relatório enviado ao Telegram!")
+            st.success("✅ Relatório detalhado enviado ao Telegram!")
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro técnico: {e}")
 
 st.divider()
 st.write("### 📈 Visualização de Tendências")
 
-# Abas para os gráficos
+# Cria abas para cada ação monitorada
 tabs = st.tabs(ACOES)
 for i, ticker in enumerate(ACOES):
     with tabs[i]:
-        st.write(f"Análise visual de **{ticker}**")
+        st.write(f"Movimentação de **{ticker}** (Últimos 6 meses)")
         try:
             fig = gerar_grafico_interativo(ticker)
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.error(f"Erro ao carregar gráfico de {ticker}")
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Aguardando abertura do mercado para atualizar dados.")
+        except:
+            st.error("Erro ao carregar gráfico.")
 
 st.divider()
-st.caption("v3.1 - IA com Gráficos Dinâmicos, Gerenciamento de Risco e Balanço Mensal.")
+st.caption("v3.1 - IA com Gráficos Interativos e Proteção de Dados.")

@@ -15,16 +15,11 @@ NOME_ARQUIVO = "database_performance.csv"
 def gerar_grafico_interativo(ticker):
     """Gera um gráfico de preços com Médias Móveis para o Streamlit"""
     dados = yf.download(ticker, period="6mo", interval="1d", progress=False)
+    if dados.empty: return None
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dados.index, y=dados['Close'], name='Preço', line=dict(color='#00ff00')))
     fig.add_trace(go.Scatter(x=dados.index, y=dados['Close'].rolling(10).mean(), name='Média 10d', line=dict(dash='dot')))
-    fig.update_layout(
-        title=f"Tendência: {ticker}",
-        template="plotly_dark",
-        xaxis_rangeslider_visible=False,
-        height=400,
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
+    fig.update_layout(title=f"Tendência: {ticker}", template="plotly_dark", xaxis_rangeslider_visible=False, height=400)
     return fig
 
 def calcular_gerenciamento_risco(preco_atual, volatilidade):
@@ -34,10 +29,11 @@ def calcular_gerenciamento_risco(preco_atual, volatilidade):
     return preco_atual - margem_stop, preco_atual + margem_alvo
 
 def analisar_correlacao(dados):
-    correl = dados['USDBRL=X'].pct_change().corr(dados['^BVSP'].pct_change())
-    if correl < -0.5:
-        return "⚠️ **ALERTA DE MACRO:** Correlação Dólar vs Ibov forte (Fuga de Risco)."
-    return "✅ **MACRO:** Correlação estável."
+    try:
+        correl = dados['USDBRL=X'].pct_change().corr(dados['^BVSP'].pct_change())
+        if correl < -0.5: return "⚠️ **ALERTA DE MACRO:** Fuga de Risco detectada."
+        return "✅ **MACRO:** Correlação estável."
+    except: return "⚠️ **MACRO:** Dados insuficientes para correlação."
 
 def salvar_historico(ticker, sinal, lucro):
     data_hoje = datetime.date.today().strftime("%Y-%m-%d")
@@ -49,14 +45,21 @@ def salvar_historico(ticker, sinal, lucro):
 
 def calcular_lucro_mensal():
     if not os.path.isfile(NOME_ARQUIVO): return 0.0
-    df = pd.read_csv(NOME_ARQUIVO)
-    df['Data'] = pd.to_datetime(df['Data'])
-    mes, ano = datetime.date.today().month, datetime.date.today().year
-    return df[(df['Data'].dt.month == mes) & (df['Data'].dt.year == ano)]['Lucro'].sum()
+    try:
+        df = pd.read_csv(NOME_ARQUIVO)
+        df['Data'] = pd.to_datetime(df['Data'])
+        mes, ano = datetime.date.today().month, datetime.date.today().year
+        return df[(df['Data'].dt.month == mes) & (df['Data'].dt.year == ano)]['Lucro'].sum()
+    except: return 0.0
 
 def executar_analise_total():
     tickers_macro = ['BZ=F', 'USDBRL=X', '^BVSP']
+    # Aumentamos o período para garantir que sempre haja dados para a IA
     dados = yf.download(ACOES + tickers_macro, period="2y", interval="1d", progress=False)['Close']
+    
+    # Preenchimento de falhas para evitar o erro de "0 samples"
+    dados = dados.ffill().dropna() 
+    
     alerta_macro = analisar_correlacao(dados)
     msg_final = f"🧠 **SISTEMA QUANTITATIVO V3.1**\n{alerta_macro}\n\n"
     total_dia = 0
@@ -69,6 +72,8 @@ def executar_analise_total():
         df['Alvo_IA'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         df = df.dropna()
         
+        if len(df) < 20: continue # Pula se ainda houver pouco dado
+
         X = df[['Close', 'MA10', 'Volatilidade', 'Brent', 'Dolar', 'Ibov']]
         y = df['Alvo_IA']
         modelo = RandomForestClassifier(n_estimators=100, random_state=42).fit(X[:-1], y[:-1])
@@ -83,10 +88,10 @@ def executar_analise_total():
         total_dia += lucro_hoje
         salvar_historico(ticker, "COMPRA" if previsao == 1 else "VENDA", lucro_hoje)
 
-        msg_final += f"📍 **{ticker}** | {'🟢' if previsao == 1 else '🔴'} ({prob:.1f}%)\n"
+        msg_final += f"📍 **{ticker}** | {'🟢 COMPRA' if previsao == 1 else '🔴 VENDA'} ({prob:.1f}%)\n"
         if previsao == 1:
             msg_final += f"   🎯 Alvo: R$ {alvo:.2f} | 🛡️ Stop: R$ {stop:.2f}\n"
         msg_final += f"   💰 Simulação: R$ {lucro_hoje:.2f}\n\n"
 
-    msg_final += f"📊 **BALANÇO MENSAL: R$ {calcular_lucro_mensal():.2f}**\n💵 **HOJE: R$ {total_dia:.2f}**"
+    msg_final += f"📊 **BALANÇO MÊS: R$ {calcular_lucro_mensal():.2f}**\n💵 **HOJE: R$ {total_dia:.2f}**"
     requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", data={'chat_id': CHAT_ID, 'text': msg_final, 'parse_mode': 'Markdown'})
