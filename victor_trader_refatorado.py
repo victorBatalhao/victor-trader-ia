@@ -14,9 +14,9 @@ from sklearn.ensemble import RandomForestClassifier
 # ==========================
 # CONFIGURAÇÕES (USE ENV VARS)
 # ==========================
-TOKEN_TELEGRAM = os.getenv("8238619023:AAEcPr19DnbSpb3Ufoo6sL6ylzTRzdItp80")
-CHAT_ID = os.getenv("5584195780")
-TOKEN_BRAPI = os.getenv("ngaj1shkPqZhAYL6Hcq5wB")
+TOKEN_TELEGRAM = "8238619023:AAEcPr19DnbSpb3Ufoo6sL6ylzTRzdItp80"
+CHAT_ID = "5584195780"
+TOKEN_BRAPI = "ngaj1shkPqZhAYL6Hcq5wB"
 
 ACOES = ["PETR4", "VALE3", "ITUB4", "KLBN11", "BBAS3", "TAEE11"]
 ARQ_CSV = "historico_operacoes.csv"
