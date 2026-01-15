@@ -2,53 +2,66 @@ import streamlit as st
 import threading
 import time
 import schedule
+import yfinance as yf
 from bot_trader import executar_analise_total, ACOES, gerar_grafico_interativo
 
+# Configuração de Página
+st.set_page_config(page_title="Victor Trader v3.2", page_icon="📈", layout="wide")
+
+# --- MONITOR DE DADOS (SIDEBAR) ---
+st.sidebar.title("📡 Status da Conexão")
+st.sidebar.write("Verificando Yahoo Finance...")
+
+for ticker in ACOES:
+    try:
+        # Tenta carregar apenas o último preço para validar a conexão
+        check = yf.Ticker(ticker).fast_info['last_price']
+        if check:
+            st.sidebar.success(f"● {ticker}: OK")
+        else:
+            st.sidebar.error(f"○ {ticker}: Sem dados")
+    except:
+        st.sidebar.warning(f"○ {ticker}: Erro/Timeout")
+
+# --- AGENDADOR ---
 @st.cache_resource
-def iniciar_agendador_unico():
-    def rodar_loop():
+def iniciar_agendador():
+    def rodar():
         schedule.clear()
-        dias = ["monday", "tuesday", "wednesday", "thursday", "friday"]
-        for dia in dias:
-            getattr(schedule.every(), dia).at("17:05").do(executar_analise_total)
+        schedule.every().day.at("17:05").do(executar_analise_total)
         while True:
             schedule.run_pending()
             time.sleep(60)
-    t = threading.Thread(target=rodar_loop, daemon=True)
-    t.start()
-    return "🔥 Agendador 17:05 Ativo"
+    threading.Thread(target=rodar, daemon=True).start()
+    return "Relógio 17:05 Ativo"
 
-iniciar_agendador_unico()
+st.sidebar.divider()
+st.sidebar.info(iniciar_agendador())
 
-st.set_page_config(page_title="Victor Trader IA v3.1", page_icon="📈", layout="centered")
-
+# --- CORPO DO SITE ---
 st.title("🚀 Victor Trader IA")
-st.subheader("Sistema Quantitativo Profissional")
+st.subheader("Painel de Controle Quantitativo")
 
-if st.button("📊 DISPARAR ANÁLISE COMPLETA", use_container_width=True):
-    with st.spinner("IA analisando dados e tendências..."):
-        try:
-            executar_analise_total()
-            st.success("✅ Relatório detalhado enviado ao Telegram!")
-        except Exception as e:
-            st.error(f"Erro técnico: {e}")
+if st.button("📊 DISPARAR ANÁLISE COMPLETA AGORA", use_container_width=True):
+    with st.spinner("IA processando e verificando integridade dos ativos..."):
+        executar_analise_total()
+        st.success("Relatório gerado! Verifique o Log de Integridade no seu Telegram.")
+        st.balloons()
 
 st.divider()
-st.write("### 📈 Visualização de Tendências")
 
-# Cria abas para cada ação monitorada
-tabs = st.tabs(ACOES)
+# --- GRÁFICOS EM DUAS COLUNAS ---
+st.subheader("📈 Análise Visual de Tendências")
+cols = st.columns(2)
+
 for i, ticker in enumerate(ACOES):
-    with tabs[i]:
-        st.write(f"Movimentação de **{ticker}** (Últimos 6 meses)")
-        try:
-            fig = gerar_grafico_interativo(ticker)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Aguardando abertura do mercado para atualizar dados.")
-        except:
-            st.error("Erro ao carregar gráfico.")
+    col_idx = i % 2
+    with cols[col_idx]:
+        fig = gerar_grafico_interativo(ticker)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning(f"Dados gráficos de {ticker} temporariamente indisponíveis.")
 
 st.divider()
-st.caption("v3.1 - IA com Gráficos Interativos e Proteção de Dados.")
+st.caption("Victor Trader IA v3.2 - Sistema de Análise Modular e Gerenciamento de Dados.")

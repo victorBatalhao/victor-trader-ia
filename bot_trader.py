@@ -13,27 +13,31 @@ ACOES = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "KLBN11.SA", "BBAS3.SA", "TAEE11.SA
 NOME_ARQUIVO = "database_performance.csv"
 
 def gerar_grafico_interativo(ticker):
-    """Gera um gráfico de preços com Médias Móveis para o Streamlit"""
-    dados = yf.download(ticker, period="6mo", interval="1d", progress=False)
-    if dados.empty: return None
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dados.index, y=dados['Close'], name='Preço', line=dict(color='#00ff00')))
-    fig.add_trace(go.Scatter(x=dados.index, y=dados['Close'].rolling(10).mean(), name='Média 10d', line=dict(dash='dot')))
-    fig.update_layout(title=f"Tendência: {ticker}", template="plotly_dark", xaxis_rangeslider_visible=False, height=400)
-    return fig
-
-def calcular_gerenciamento_risco(preco_atual, volatilidade):
-    """Calcula Alvo e Stop Loss baseados na volatilidade"""
-    margem_stop = preco_atual * (volatilidade * 1.5)
-    margem_alvo = preco_atual * (volatilidade * 3.0)
-    return preco_atual - margem_stop, preco_atual + margem_alvo
-
-def analisar_correlacao(dados):
+    """Gera gráfico garantindo preenchimento de dados para evitar NaN"""
     try:
-        correl = dados['USDBRL=X'].pct_change().corr(dados['^BVSP'].pct_change())
-        if correl < -0.5: return "⚠️ **ALERTA DE MACRO:** Fuga de Risco detectada."
-        return "✅ **MACRO:** Correlação estável."
-    except: return "⚠️ **MACRO:** Dados insuficientes para correlação."
+        df = yf.download(ticker, period="1y", interval="1d", progress=False)
+        if df.empty: return None
+        
+        # Consolida os dados para garantir que MA10 não falhe
+        df = df['Close'].to_frame()
+        df.columns = ['Close']
+        df['MA10'] = df['Close'].rolling(window=10).mean()
+        df = df.ffill().tail(100) # Últimos 100 pregões
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Preço', line=dict(color='#00ff00')))
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA10'], name='Média 10d', line=dict(color='#ff9900', dash='dot')))
+        
+        fig.update_layout(
+            title=f"Tendência de Preço: {ticker}",
+            template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            height=400,
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        return fig
+    except:
+        return None
 
 def salvar_historico(ticker, sinal, lucro):
     data_hoje = datetime.date.today().strftime("%Y-%m-%d")
@@ -53,45 +57,78 @@ def calcular_lucro_mensal():
     except: return 0.0
 
 def executar_analise_total():
-    tickers_macro = ['BZ=F', 'USDBRL=X', '^BVSP']
-    # Aumentamos o período para garantir que sempre haja dados para a IA
-    dados = yf.download(ACOES + tickers_macro, period="2y", interval="1d", progress=False)['Close']
-    
-    # Preenchimento de falhas para evitar o erro de "0 samples"
-    dados = dados.ffill().dropna() 
-    
-    alerta_macro = analisar_correlacao(dados)
-    msg_final = f"🧠 **SISTEMA QUANTITATIVO V3.1**\n{alerta_macro}\n\n"
+    msg_final = "🧠 **SISTEMA QUANTITATIVO V3.2**\n"
+    logs_integridade = []
     total_dia = 0
+    
+    # 1. TENTA DADOS MACRO (Dólar e Ibov)
+    try:
+        macro = yf.download(['USDBRL=X', '^BVSP'], period="1y", progress=False)['Close'].ffill()
+        if macro.empty: raise Exception
+        logs_integridade.append("✅ Dados Macro: OK")
+    except:
+        macro = None
+        logs_integridade.append("⚠️ Dados Macro: Indisponíveis (IA operando em modo técnico)")
 
+    # 2. ANALISA CADA AÇÃO INDIVIDUALMENTE
     for ticker in ACOES:
-        df = pd.DataFrame(dados[ticker]).rename(columns={ticker: 'Close'})
-        df['MA10'] = df['Close'].rolling(10).mean()
-        df['Volatilidade'] = df['Close'].pct_change().rolling(5).std()
-        df['Brent'], df['Dolar'], df['Ibov'] = dados['BZ=F'], dados['USDBRL=X'], dados['^BVSP']
-        df['Alvo_IA'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-        df = df.dropna()
-        
-        if len(df) < 20: continue # Pula se ainda houver pouco dado
+        try:
+            df = yf.download(ticker, period="1y", progress=False)['Close'].to_frame()
+            if df.empty:
+                logs_integridade.append(f"❌ {ticker}: Falha na conexão")
+                continue
+            
+            df.columns = ['Close']
+            df = df.ffill()
+            
+            # Indicadores fundamentais
+            df['MA10'] = df['Close'].rolling(10).mean()
+            df['Retorno'] = df['Close'].pct_change()
+            df['Volatilidade'] = df['Retorno'].rolling(5).std()
+            
+            # IA Dinâmica: se tiver macro usa, se não, usa só o técnico
+            cols_treino = ['Close', 'MA10', 'Volatilidade']
+            if macro is not None:
+                df = df.join(macro).ffill()
+                cols_treino += ['USDBRL=X', '^BVSP']
+            
+            df['Alvo'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+            dados_ia = df.dropna()
+            
+            if len(dados_ia) < 30:
+                logs_integridade.append(f"⚠️ {ticker}: Histórico insuficiente")
+                continue
 
-        X = df[['Close', 'MA10', 'Volatilidade', 'Brent', 'Dolar', 'Ibov']]
-        y = df['Alvo_IA']
-        modelo = RandomForestClassifier(n_estimators=100, random_state=42).fit(X[:-1], y[:-1])
-        previsao = modelo.predict(X.tail(1))[0]
-        prob = max(modelo.predict_proba(X.tail(1))[0]) * 100
-        
-        preco_atual = df['Close'].iloc[-1]
-        stop, alvo = calcular_gerenciamento_risco(preco_atual, df['Volatilidade'].iloc[-1])
-        
-        variacao = (df['Close'].iloc[-1] / df['Close'].iloc[-2] - 1) * 100
-        lucro_hoje = 10000 * (variacao / 100) if previsao == 1 else 0
-        total_dia += lucro_hoje
-        salvar_historico(ticker, "COMPRA" if previsao == 1 else "VENDA", lucro_hoje)
+            X = dados_ia[cols_treino]
+            y = dados_ia['Alvo']
+            
+            modelo = RandomForestClassifier(n_estimators=100, random_state=42).fit(X[:-1], y[:-1])
+            previsao = modelo.predict(X.tail(1))[0]
+            prob = max(modelo.predict_proba(X.tail(1))[0]) * 100
+            
+            # Gerenciamento de Risco
+            preco_atual = df['Close'].iloc[-1]
+            stop, alvo = preco_atual * 0.985, preco_atual * 1.03
+            
+            # Financeiro
+            variacao = df['Retorno'].iloc[-1] * 100
+            lucro_hoje = 10000 * (variacao / 100) if previsao == 1 else 0
+            total_dia += lucro_hoje
+            salvar_historico(ticker, "COMPRA" if previsao == 1 else "VENDA", lucro_hoje)
 
-        msg_final += f"📍 **{ticker}** | {'🟢 COMPRA' if previsao == 1 else '🔴 VENDA'} ({prob:.1f}%)\n"
-        if previsao == 1:
-            msg_final += f"   🎯 Alvo: R$ {alvo:.2f} | 🛡️ Stop: R$ {stop:.2f}\n"
-        msg_final += f"   💰 Simulação: R$ {lucro_hoje:.2f}\n\n"
+            sinal_txt = "🟢 COMPRA" if previsao == 1 else "🔴 VENDA"
+            msg_final += f"\n📍 **{ticker}** | {sinal_txt} ({prob:.1f}%)\n"
+            if previsao == 1:
+                msg_final += f"   🎯 Alvo: R$ {alvo:.2f} | 🛡️ Stop: R$ {stop:.2f}\n"
+            msg_final += f"   💰 Resultado: R$ {lucro_hoje:.2f}\n"
 
-    msg_final += f"📊 **BALANÇO MÊS: R$ {calcular_lucro_mensal():.2f}**\n💵 **HOJE: R$ {total_dia:.2f}**"
-    requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", data={'chat_id': CHAT_ID, 'text': msg_final, 'parse_mode': 'Markdown'})
+        except Exception as e:
+            logs_integridade.append(f"⚠️ Erro em {ticker}")
+
+    # Finalização da Mensagem
+    msg_final += f"\n💰 **TOTAL DIA: R$ {total_dia:.2f}**"
+    msg_final += f"\n📊 **BALANÇO MÊS: R$ {calcular_lucro_mensal():.2f}**"
+    msg_final += "\n\n📡 **LOG DE INTEGRIDADE:**\n" + "\n".join(logs_integridade)
+    
+    requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", 
+                  data={'chat_id': CHAT_ID, 'text': msg_final, 'parse_mode': 'Markdown'})
