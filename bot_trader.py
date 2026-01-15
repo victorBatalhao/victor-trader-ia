@@ -1,88 +1,93 @@
 import yfinance as yf
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from sklearn.ensemble import RandomForestClassifier
+import datetime
+import os
+import numpy as np
 
-# --- CONFIGURAÇÕES DO VICTOR ---
+# --- CONFIGURAÇÕES ---
 TOKEN_TELEGRAM = "8238619023:AAEcPr19DnbSpb3Ufoo6sL6ylzTRzdItp80"
 CHAT_ID = "5584195780"
-ACOES_TRADE = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"]
-ACOES_DIVIDENDOS = ["KLBN11.SA", "BBAS3.SA", "TAEE11.SA"]
+ACOES = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "KLBN11.SA", "BBAS3.SA", "TAEE11.SA"]
+NOME_ARQUIVO = "database_performance.csv"
 
-def obter_investidor10(ticker):
-    url = f"https://investidor10.com.br/acoes/{ticker.lower().replace('.sa', '')}/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        indicadores = {}
-        cards = soup.find_all('div', class_='_card-body')
-        for card in cards[:5]:
-            titulo = card.find('span').text.strip()
-            valor = card.find('div', class_='_card-value').text.strip()
-            indicadores[titulo] = valor
-        return indicadores
-    except: return None
+def calcular_gerenciamento_risco(preco_atual, volatilidade):
+    """Calcula Alvo (Take Profit) e Stop Loss baseados na volatilidade (ATR simplificado)"""
+    # Usamos 2x a volatilidade para o Alvo e 1x para o Stop (Ratio 2:1)
+    margem_stop = preco_atual * (volatilidade * 1.5)
+    margem_alvo = preco_atual * (volatilidade * 3.0)
+    
+    stop_loss = preco_atual - margem_stop
+    take_profit = preco_atual + margem_alvo
+    return stop_loss, take_profit
 
-# --- AQUI ENTRA A SUA NOVA FUNÇÃO ---
-def analisar_cenario(ticker, previsao, prob, variação_dia, fundamentos):
-    if previsao == 0: 
-        if variação_dia > 0:
-            motivo = "🚀 *Maximizar Lucros:* A ação subiu hoje, mas a IA detectou perda de força. Venda agora para garantir o lucro no topo."
-        else:
-            motivo = "📉 *Minimizar Perdas:* A ação já está caindo e a tendência é piorar. Venda para evitar um prejuízo maior."
-    else: 
-        motivo = "✅ *Oportunidade:* Indicadores sugerem que o preço está atrativo para entrada ou reforço de posição."
+def analisar_correlacao(dados):
+    """Verifica se o mercado está em modo de pânico (Dólar up, Bolsa down)"""
+    correl = dados['USDBRL=X'].pct_change().corr(dados['^BVSP'].pct_change())
+    if correl < -0.5:
+        return "⚠️ **ALERTA DE MACRO:** Correlação Dólar vs Ibov muito forte. O mercado está em modo de 'Fuga de Risco'."
+    return "✅ **MACRO:** Correlação estável. O movimento parece ser específico de cada ação."
 
-    if prob > 85:
-        proximos_dias = "🔥 *Forte Tendência:* O movimento deve se intensificar nos próximos 3 a 5 dias."
-    elif prob > 60:
-        proximos_dias = "⚖️ *Volatilidade:* Mercado indeciso, espere oscilações curtas."
+def salvar_historico(ticker, sinal, lucro):
+    data_hoje = datetime.date.today().strftime("%Y-%m-%d")
+    novo_dado = pd.DataFrame([[data_hoje, ticker, sinal, lucro]], columns=['Data', 'Ticker', 'Sinal', 'Lucro'])
+    if not os.path.isfile(NOME_ARQUIVO):
+        novo_dado.to_csv(NOME_ARQUIVO, index=False)
     else:
-        proximos_dias = "⚠️ *Atenção:* Mudança de tendência à vista. O cenário pode inverter."
+        novo_dado.to_csv(NOME_ARQUIVO, mode='a', header=False, index=False)
 
-    msg = f"📊 *ANÁLISE: {ticker}*\n"
-    msg += f"👉 *RECOMENDAÇÃO:* {'🟢 COMPRA' if previsao == 1 else '🔴 VENDA'}\n"
-    msg += f"💡 *PORQUÊ:* {motivo}\n"
-    msg += f"🔮 *PRÓXIMOS DIAS:* {proximos_dias}\n"
-    if fundamentos:
-        msg += f"📋 *P/L:* {fundamentos.get('P/L','-')} | *DY:* {fundamentos.get('DY','-')}\n"
-    return msg + "\n"
+def calcular_lucro_mensal():
+    if not os.path.isfile(NOME_ARQUIVO): return 0.0
+    df = pd.read_csv(NOME_ARQUIVO)
+    df['Data'] = pd.to_datetime(df['Data'])
+    mes, ano = datetime.date.today().month, datetime.date.today().year
+    return df[(df['Data'].dt.month == mes) & (df['Data'].dt.year == ano)]['Lucro'].sum()
 
 def executar_analise_total():
-    todas = ACOES_TRADE + ACOES_DIVIDENDOS
-    dados = yf.download(todas + ['BZ=F', 'USDBRL=X'], period="2y", interval="1d", progress=False)['Close']
+    tickers_macro = ['BZ=F', 'USDBRL=X', '^BVSP']
+    dados = yf.download(ACOES + tickers_macro, period="2y", interval="1d", progress=False)['Close']
     
-    relatorio_completo = ""
-    melhor_confianca, melhor_acao = 0, ""
+    alerta_macro = analisar_correlacao(dados)
+    msg_final = f"🧠 **SISTEMA QUANTITATIVO V3.0**\n{alerta_macro}\n\n"
+    total_dia = 0
 
-    for ticker in todas:
-        df = pd.DataFrame()
-        df['Retorno'] = dados[ticker].pct_change()
-        df['Brent'] = dados['BZ=F'].pct_change()
-        df['Dolar'] = dados['USDBRL=X'].pct_change()
-        df['Alvo'] = (dados[ticker].shift(-1) > dados[ticker]).astype(int)
+    for ticker in ACOES:
+        df = pd.DataFrame(dados[ticker]).rename(columns={ticker: 'Close'})
+        df['MA10'] = df['Close'].rolling(10).mean()
+        df['Volatilidade'] = df['Close'].pct_change().rolling(5).std()
+        df['Brent'], df['Dolar'], df['Ibov'] = dados['BZ=F'], dados['USDBRL=X'], dados['^BVSP']
+        df['Alvo_IA'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         df = df.dropna()
-
-        X, y = df[['Retorno', 'Brent', 'Dolar']], df['Alvo']
-        modelo = RandomForestClassifier(n_estimators=100).fit(X, y)
         
-        prob = max(modelo.predict_proba(X.tail(1))[0]) * 100
+        X = df[['Close', 'MA10', 'Volatilidade', 'Brent', 'Dolar', 'Ibov']]
+        y = df['Alvo_IA']
+        
+        modelo = RandomForestClassifier(n_estimators=100, random_state=42).fit(X[:-1], y[:-1])
         previsao = modelo.predict(X.tail(1))[0]
+        prob = max(modelo.predict_proba(X.tail(1))[0]) * 100
         
-        # Cálculo da variação do dia para a sua nova lógica
-        preco_hoje = dados[ticker].iloc[-1]
-        preco_ontem = dados[ticker].iloc[-2]
-        variacao = ((preco_hoje - preco_ontem) / preco_ontem) * 100
+        preco_atual = df['Close'].iloc[-1]
+        volat_atual = df['Volatilidade'].iloc[-1]
         
-        fundamentos = obter_investidor10(ticker)
+        # 1. Gerenciamento de Risco
+        stop, alvo = calcular_gerenciamento_risco(preco_atual, volat_atual)
         
-        # CHAMADA DA SUA NOVA FUNÇÃO AQUI:
-        relatorio_completo += analisar_cenario(ticker, previsao, prob, variacao, fundamentos)
+        # 2. Simulação de Lucro
+        variacao = (df['Close'].iloc[-1] / df['Close'].iloc[-2] - 1) * 100
+        lucro_hoje = 10000 * (variacao / 100) if previsao == 1 else 0
+        total_dia += lucro_hoje
+        salvar_historico(ticker, "COMPRA" if previsao == 1 else "VENDA", lucro_hoje)
 
-        if prob > melhor_confianca:
-            melhor_confianca, melhor_acao = prob, ticker
+        # Formatação da Mensagem Detalhada
+        msg_final += f"📍 **{ticker}** | {'🟢 COMPRA' if previsao == 1 else '🔴 VENDA'} ({prob:.1f}%)\n"
+        if previsao == 1:
+            msg_final += f"   🎯 Alvo: R$ {alvo:.2f} | 🛡️ Stop: R$ {stop:.2f}\n"
+        msg_final += f"   💰 Simulação: R$ {lucro_hoje:.2f}\n\n"
 
-    final_msg = f"🏆 *MELHOR ESCOLHA: {melhor_acao}* ({melhor_confianca:.1f}%)\n\n" + relatorio_completo
-    requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", data={'chat_id': CHAT_ID, 'text': final_msg, 'parse_mode': 'Markdown'})
+    lucro_acumulado = calcular_lucro_mensal()
+    msg_final += f"📊 **BALANÇO MENSAL: R$ {lucro_acumulado:.2f}**\n"
+    msg_final += f"💵 **RESULTADO HOJE: R$ {total_dia:.2f}**"
+
+    requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", 
+                  data={'chat_id': CHAT_ID, 'text': msg_final, 'parse_mode': 'Markdown'})
