@@ -3,7 +3,5 @@ yfinance
 pandas
 scikit-learn
 requests
-beautifulsoup4
-numpy
 plotly
-schedule
+numpy
