@@ -13,21 +13,19 @@ CHAT_ID = "5584195780"
 ACOES = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "KLBN11.SA", "BBAS3.SA", "TAEE11.SA"]
 ARQ_CSV = "historico_victor_ia.csv"
 
-# --- FUNÇÃO DE DADOS (CORRIGE ERRO DE GRÁFICO) ---
+# --- FUNÇÃO DE DADOS (GRÁFICOS OK) ---
 @st.cache_data(ttl=600)
 def buscar_dados(ticker):
     try:
-        # auto_adjust=True limpa os dados para o Plotly ler
         df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
         if df.empty: return pd.DataFrame()
-        # Remove cabeçalhos duplos que impediam a exibição dos gráficos
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         return df
     except:
         return pd.DataFrame()
 
-# --- INTELIGÊNCIA ARTIFICIAL (TRADE vs DIVIDENDOS) ---
+# --- INTELIGÊNCIA ARTIFICIAL ---
 def motor_ia(df):
     try:
         df = df.copy()
@@ -45,7 +43,6 @@ def motor_ia(df):
         pred = modelo.predict(X.tail(1))[0]
         prob = modelo.predict_proba(X.tail(1))[0]
         
-        # Lógica Victor: Trade para oscilação, Dividendos para estabilidade
         vol = df['Volatilidade'].iloc[-1]
         perfil = "💰 DIVIDENDOS" if vol < 0.017 else "⚔️ TRADE"
         tendencia = "🚀 ALTA (Valorização)" if pred == 1 else "📉 QUEDA (Depreciação)"
@@ -54,11 +51,10 @@ def motor_ia(df):
     except:
         return "ERRO", 0, "N/A", "N/A"
 
-# --- INTERFACE STREAMLIT ---
+# --- INTERFACE ---
 st.set_page_config(page_title="Victor Trader IA v6.5", layout="wide")
 st.title("🤖 Victor Trader IA – Inteligência de Mercado")
 
-# Barra Lateral de Status
 st.sidebar.title("📡 Conexão B3")
 for acao in ACOES:
     if not buscar_dados(acao).empty:
@@ -66,34 +62,44 @@ for acao in ACOES:
     else:
         st.sidebar.error(f"{acao}: Offline")
 
-# Botão de Relatório
+# --- BOTÃO DE ENVIO (CORRIGIDO PARA TELEGRAM) ---
 if st.button("📡 EXECUTAR ANÁLISE COMPLETA E ENVIAR TELEGRAM", use_container_width=True):
     msg = f"🤖 **RELATÓRIO VICTOR TRADER IA**\n📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-    sucesso = False
+    sucesso_envio = False
     
     for acao in ACOES:
         df = buscar_dados(acao)
         if not df.empty:
-            sucesso = True
+            sucesso_envio = True
             sinal, conf, perfil, tend = motor_ia(df)
-            preco = float(df['Close'].iloc[-1])
             
-            msg += f"\n📊 **{acao.replace('.SA', '')}** | R$ {preco:.2f}"
+            # CORREÇÃO CRÍTICA: Convertendo para float puro para o Telegram aceitar
+            preco_raw = df['Close'].iloc[-1]
+            preco_final = float(preco_raw.item()) if hasattr(preco_raw, 'item') else float(preco_raw)
+            
+            msg += f"\n📊 **{acao.replace('.SA', '')}** | R$ {preco_final:.2f}"
             msg += f"\n👉 SINAL: {sinal} ({conf:.1f}%)"
             msg += f"\n🎯 MODO: {perfil} | {tend}\n"
             
             # Salva histórico CSV
-            pd.DataFrame([[datetime.datetime.now(), acao, preco, sinal, perfil]], 
+            pd.DataFrame([[datetime.datetime.now(), acao, preco_final, sinal, perfil]], 
                          columns=["Data","Ativo","Preco","Sinal","Perfil"]).to_csv(ARQ_CSV, mode='a', header=not os.path.exists(ARQ_CSV), index=False)
     
-    if sucesso:
-        requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", 
-                      data={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
-        st.success("Relatório enviado com sucesso!")
+    if sucesso_envio:
+        try:
+            url_telegram = f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage"
+            response = requests.post(url_telegram, data={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
+            
+            if response.status_code == 200:
+                st.success("✅ Relatório enviado com sucesso ao Telegram!")
+            else:
+                st.error(f"❌ Erro no Telegram: {response.text}")
+        except Exception as e:
+            st.error(f"❌ Erro de conexão: {e}")
     else:
-        st.error("Erro ao coletar dados do Yahoo Finance.")
+        st.error("❌ Não foi possível coletar dados para o relatório.")
 
-# --- GRÁFICOS TÉCNICOS ---
+# --- GRÁFICOS (QUE JÁ ESTÃO FUNCIONANDO) ---
 st.divider()
 st.subheader("📈 Visualização Gráfica (Candlestick)")
 cols = st.columns(2)
@@ -101,7 +107,6 @@ for i, acao in enumerate(ACOES):
     with cols[i % 2]:
         df_g = buscar_dados(acao)
         if not df_g.empty:
-            # Gráfico Plotly corrigido para não aparecer vazio
             fig = go.Figure(data=[go.Candlestick(
                 x=df_g.index[-60:], open=df_g['Open'], high=df_g['High'], 
                 low=df_g['Low'], close=df_g['Close']
@@ -109,7 +114,6 @@ for i, acao in enumerate(ACOES):
             fig.update_layout(title=f"Ativo: {acao}", xaxis_rangeslider_visible=False, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
-# --- DOWNLOAD CSV ---
 if os.path.exists(ARQ_CSV):
     st.divider()
     df_h = pd.read_csv(ARQ_CSV)
