@@ -1,50 +1,38 @@
 import streamlit as st
-import pandas as pd
-import os
-import datetime
 import yfinance as yf
-from bot_trader import executar_analise_total, ACOES, gerar_grafico_interativo, NOME_ARQUIVO
+from bot_trader import executar_analise_total, ACOES, gerar_grafico_historico
 
-st.set_page_config(page_title="Victor Trader Pro", layout="wide")
+st.set_page_config(page_title="Victor Trader Web", layout="wide")
 
-# Barra Lateral - Força a exibição do último preço conhecido
-st.sidebar.title("📡 Monitor de Sinais")
+# Lateral: Status detalhado da Conexão
+st.sidebar.title("📡 Status das Ações")
 for ticker in ACOES:
     try:
-        data = yf.download(ticker, period="5d", progress=False)
-        preco = data['Close'].iloc[-1]
-        st.sidebar.success(f"{ticker}: R$ {preco:.2f}")
-    except:
-        st.sidebar.error(f"{ticker}: Offline")
-
-st.title("🚀 Victor Trader IA v3.2.5")
-
-if st.button("📊 DISPARAR ANÁLISE COMPLETA", use_container_width=True):
-    with st.spinner("IA processando dados históricos e atuais..."):
-        executar_analise_total()
-        st.success("Relatório enviado! Verifique seu Telegram.")
-        st.rerun()
-
-st.divider()
-
-# Histórico de Dados
-st.subheader("📁 Histórico e Backup")
-if os.path.isfile(NOME_ARQUIVO):
-    df = pd.read_csv(NOME_ARQUIVO)
-    st.dataframe(df.tail(10), use_container_width=True)
-    st.download_button("📥 Baixar Planilha CSV", df.to_csv(index=False), "backup.csv", "text/csv")
-else:
-    st.info("Aguardando dados para gerar histórico.")
-
-st.divider()
-
-# Gráficos de Tendência - Corrigidos para não aparecerem em branco
-st.subheader("📈 Visualização de Tendências (Preço vs MA10)")
-cols = st.columns(2)
-for i, ticker in enumerate(ACOES):
-    with cols[i % 2]:
-        fig = gerar_grafico_interativo(ticker)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        data = yf.download(ticker, period="1d", progress=False)
+        if data.empty:
+            st.sidebar.error(f"⚠️ {ticker}: Erro de Dados")
         else:
-            st.warning(f"Aguardando dados de {ticker}...")
+            preco = data['Close'].iloc[-1]
+            st.sidebar.success(f"● {ticker}: OK (R$ {preco:.2f})")
+    except:
+        st.sidebar.error(f"❌ {ticker}: Falha na API")
+
+st.title("🚀 Victor Trader IA v3.2.6")
+
+if st.button("📊 EXECUTAR ANÁLISE E ENVIAR AO TELEGRAM", use_container_width=True):
+    with st.spinner("IA calculando sinais de compra e venda..."):
+        executar_analise_total()
+        st.success("Sinais enviados para o Telegram com sucesso!")
+
+st.divider()
+
+# Exibição de Gráficos Históricos
+st.subheader("📈 Análise Histórica (Datas, Valores e Variações)")
+for ticker in ACOES:
+    fig = gerar_grafico_historico(ticker)
+    if fig:
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.error(f"❌ Erro ao carregar histórico de {ticker}. Verifique a conexão com o Yahoo Finance.")
+
+st.caption("Sistema Quantitativo Profissional | Dados atualizados via API")
