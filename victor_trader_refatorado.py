@@ -14,9 +14,9 @@ from sklearn.ensemble import RandomForestClassifier
 # ==========================
 # CONFIGURAÇÕES (USE ENV VARS)
 # ==========================
-TOKEN_TELEGRAM = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-TOKEN_BRAPI = os.getenv("BRAPI_TOKEN")
+TOKEN_TELEGRAM = os.getenv("8238619023:AAEcPr19DnbSpb3Ufoo6sL6ylzTRzdItp80")
+CHAT_ID = os.getenv("5584195780")
+TOKEN_BRAPI = os.getenv("ngaj1shkPqZhAYL6Hcq5wB")
 
 ACOES = ["PETR4", "VALE3", "ITUB4", "KLBN11", "BBAS3", "TAEE11"]
 ARQ_CSV = "historico_operacoes.csv"
@@ -54,8 +54,6 @@ def preparar_features(df):
 # ==========================
 def prever_movimento(df):
     dados = preparar_features(df)
-    if len(dados) < 10:  # Verificação mínima de dados
-        return 0, 0.0
     X = dados[['close','retorno','mm7','mm21','vol']]
     y = dados['alvo']
 
@@ -71,8 +69,6 @@ def prever_movimento(df):
 # CLASSIFICAÇÃO DE PERFIL
 # ==========================
 def classificar_acao(df):
-    if len(df) < 30:  # Verificação mínima de dados
-        return "DESCONHECIDO"
     vol = df['close'].pct_change().std()
     if vol < 0.015:
         return "DIVIDENDO"
@@ -96,19 +92,13 @@ def executar_analise(tipo="AUTOMATICO"):
         perfil = classificar_acao(df)
         preco = df['close'].iloc[-1]
 
-        # Integração do perfil na decisão do sinal
-        if perfil == "DIVIDENDO":
-            sinal = "HOLD"  # Para ações de dividendos, sugerir HOLD
-        else:
-            sinal = "COMPRA" if pred == 1 else "VENDA"
+        sinal = "COMPRA" if pred==1 else "VENDA"
 
         texto += f"\n📊 {acao} | R$ {preco:.2f}"
-        texto += f"\n👉 SINAL: {sinal}"
-        if perfil == "TRADE":
-            texto += f" ({prob:.1f}%)"
+        texto += f"\n👉 SINAL: {sinal} ({prob:.1f}%)"
         texto += f"\n🎯 PERFIL: {perfil}\n"
 
-        salvar_csv(acao, preco, sinal, perfil, prob if perfil == "TRADE" else 0.0)
+        salvar_csv(acao, preco, sinal, perfil, prob)
 
     enviar_telegram(texto)
 
