@@ -2,49 +2,68 @@ import streamlit as st
 import threading
 import time
 import schedule
-from bot_trader import executar_analise_total, ACOES_TRADE, ACOES_DIVIDENDOS
+# Note que agora importamos apenas 'ACOES' em vez de 'ACOES_TRADE/DIVIDENDOS'
+from bot_trader import executar_analise_total, ACOES
 
-# --- CONFIGURAÇÃO DE SEGURANÇA PARA EVITAR DUPLICIDADE ---
-# Usamos uma função decorada com @st.cache_resource para garantir que a Thread rode APENAS UMA VEZ
+# --- CONFIGURAÇÃO DE SEGURANÇA PARA O SERVIDOR ---
+# O cache_resource garante que o relógio de agendamento não duplique ao atualizar a página
 @st.cache_resource
 def iniciar_agendador_unico():
     def rodar_loop():
-        # Limpa qualquer agendamento residual antes de começar
+        # Limpa agendamentos anteriores para evitar múltiplas mensagens
         schedule.clear()
         
-        # Agendamento de segunda a sexta às 17:05
+        # Define o horário de Brasília (17:05) de Segunda a Sexta
         dias = ["monday", "tuesday", "wednesday", "thursday", "friday"]
         for dia in dias:
             getattr(schedule.every(), dia).at("17:05").do(executar_analise_total)
         
         while True:
             schedule.run_pending()
-            time.sleep(60)
+            time.sleep(60) # Verifica o relógio a cada minuto
 
+    # Inicia o relógio em uma Thread separada (segundo plano)
     t = threading.Thread(target=rodar_loop, daemon=True)
     t.start()
-    return "Agendador iniciado"
+    return "🔥 Agendador 17:05 Ativo"
 
-# Chama a função (o Streamlit garante que ela só execute uma vez, mesmo atualizando a página)
-iniciar_agendador_unico()
+# Ativa o sistema de agendamento automático
+status_agendador = iniciar_agendador_unico()
 
-# --- INTERFACE WEB ---
-st.set_page_config(page_title="Victor Trader AI", page_icon="📈")
+# --- INTERFACE VISUAL DO PAINEL ---
+st.set_page_config(
+    page_title="Victor Trader IA v3.0", 
+    page_icon="📈", 
+    layout="centered"
+)
 
-st.title("🚀 Painel Victor Trader")
-st.write("Status: **Monitoramento Ativo (17:05)**")
+# Título e Status
+st.title("🚀 Victor Trader IA")
+st.subheader("Sistema Quantitativo de Alta Precisão")
+st.write(f"Status do Servidor: **{status_agendador}**")
 
 st.divider()
 
-if st.button("📊 ANALISAR AGORA (MANUAL)", use_container_width=True):
-    with st.spinner("IA Processando dados..."):
+# Botão de Disparo Manual
+st.write("### 🕹️ Controle Manual")
+st.write("Clique abaixo para gerar um relatório completo agora no Telegram:")
+
+if st.button("📊 DISPARAR ANÁLISE PROFISSIONAL", use_container_width=True):
+    with st.spinner("IA analisando Correlação Macro, Alvos e Gerenciamento de Risco..."):
         try:
             executar_analise_total()
-            st.success("✅ Relatório enviado com sucesso!")
+            st.balloons()
+            st.success("✅ Relatório enviado com sucesso para o Telegram!")
         except Exception as e:
-            st.error(f"Erro ao processar: {e}")
+            st.error(f"❌ Erro ao processar análise: {e}")
+            st.info("Dica: Verifique se o arquivo bot_trader.py está na mesma pasta e sem erros de sintaxe.")
 
 st.divider()
-st.write("### Ativos na Carteira:")
-st.write(f"⚔️ **Trade:** {', '.join(ACOES_TRADE)}")
-st.write(f"💎 **Dividendos:** {', '.join(ACOES_DIVIDENDOS)}")
+
+# Exibição dos Ativos Monitorados
+st.write("### 🔍 Ativos Monitorados pela IA")
+# Mostra a lista de ações que definimos no bot_trader.py
+st.info(", ".join(ACOES))
+
+# Rodapé informativo
+st.caption("v3.0 - IA com Gerenciamento de Risco (Stop/Alvo) e Balanço Mensal.")

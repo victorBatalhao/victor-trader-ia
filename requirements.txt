@@ -1,7 +1,7 @@
+streamlit
 yfinance
 pandas
 scikit-learn
 requests
 beautifulsoup4
-schedule
-streamlit
+numpy
