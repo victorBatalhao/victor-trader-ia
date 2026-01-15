@@ -1,38 +1,41 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 from bot_trader import executar_analise_total, ACOES, gerar_grafico_historico
 
-st.set_page_config(page_title="Victor Trader Web", layout="wide")
+st.set_page_config(page_title="Victor Trader IA", layout="wide")
 
-# Lateral: Status detalhado da Conexão
-st.sidebar.title("📡 Status das Ações")
+# Sidebar: Status de Conexão com Erros Detalhados
+st.sidebar.title("📡 Status dos Dados")
 for ticker in ACOES:
     try:
-        data = yf.download(ticker, period="1d", progress=False)
-        if data.empty:
-            st.sidebar.error(f"⚠️ {ticker}: Erro de Dados")
+        tkt = yf.Ticker(ticker)
+        info = tkt.history(period="1d")
+        if info.empty:
+            st.sidebar.error(f"⚠️ {ticker}: Sem dados hoje")
         else:
-            preco = data['Close'].iloc[-1]
-            st.sidebar.success(f"● {ticker}: OK (R$ {preco:.2f})")
+            preco = info['Close'].iloc[-1]
+            st.sidebar.success(f"● {ticker}: R$ {preco:.2f} (OK)")
     except:
-        st.sidebar.error(f"❌ {ticker}: Falha na API")
+        st.sidebar.error(f"❌ {ticker}: Erro de Conexão")
 
-st.title("🚀 Victor Trader IA v3.2.6")
+st.title("🚀 Victor Trader IA - Painel de Controle")
 
 if st.button("📊 EXECUTAR ANÁLISE E ENVIAR AO TELEGRAM", use_container_width=True):
-    with st.spinner("IA calculando sinais de compra e venda..."):
+    with st.spinner("IA processando sinais de compra e venda..."):
         executar_analise_total()
-        st.success("Sinais enviados para o Telegram com sucesso!")
+        st.success("Sinais enviados para o Telegram!")
 
 st.divider()
 
-# Exibição de Gráficos Históricos
-st.subheader("📈 Análise Histórica (Datas, Valores e Variações)")
+# Interface Gráfica: Gráficos Detalhados
+st.subheader("📈 Gráficos de Histórico Detalhado (Datas e Valores)")
 for ticker in ACOES:
     fig = gerar_grafico_historico(ticker)
     if fig:
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.error(f"❌ Erro ao carregar histórico de {ticker}. Verifique a conexão com o Yahoo Finance.")
+        st.warning(f"⚠️ Não foi possível carregar o gráfico de {ticker}. O Yahoo Finance pode estar instável.")
 
-st.caption("Sistema Quantitativo Profissional | Dados atualizados via API")
+st.divider()
+st.caption("Sistema v3.2.7 - Monitoramento Quantitativo Profissional")

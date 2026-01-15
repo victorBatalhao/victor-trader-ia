@@ -13,62 +13,60 @@ ACOES = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "KLBN11.SA", "BBAS3.SA", "TAEE11.SA
 NOME_ARQUIVO = "database_performance.csv"
 
 def executar_analise_total():
-    msg = "🚀 **VICTOR TRADER IA - SINAIS EM TEMPO REAL**\n"
+    msg = "🚀 **VICTOR TRADER IA - RECOMENDAÇÕES**\n"
     logs = []
     
     for ticker in ACOES:
         try:
-            # Puxa dados de 1 ano para treino e o preço atual
+            # Puxa 1 ano de dados para garantir que a IA tenha amostras
             df = yf.download(ticker, period="1y", interval="1d", progress=False)
-            if df.empty: raise ValueError("Sem dados")
+            if df.empty or len(df) < 50: 
+                raise ValueError("Dados insuficientes na API")
             
-            # Preço em tempo real
             p_atual = df['Close'].iloc[-1]
             
-            # Preparação da IA
-            df_train = df[['Close']].copy()
-            df_train['Retorno'] = df_train['Close'].pct_change()
-            df_train['Alvo'] = (df_train['Close'].shift(-1) > df_train['Close']).astype(int)
-            dados = df_train.dropna()
+            # Treinamento da IA
+            df['Retorno'] = df['Close'].pct_change()
+            df['Alvo'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+            dados = df.dropna()
             
             X = dados[['Close', 'Retorno']]
             y = dados['Alvo']
-            modelo = RandomForestClassifier(n_estimators=50).fit(X[:-1], y[:-1])
+            modelo = RandomForestClassifier(n_estimators=100).fit(X[:-1], y[:-1])
             previsao = modelo.predict(X.tail(1))[0]
             prob = max(modelo.predict_proba(X.tail(1))[0]) * 100
             
-            # Recomendação e Alvos
-            acao = "🟢 COMPRAR" if previsao == 1 else "🔴 VENDER"
-            alvo = p_atual * 1.03
-            stop = p_atual * 0.985
+            # Recomendação direta
+            ordem = "🟢 COMPRA" if previsao == 1 else "🔴 VENDA"
+            alvo, stop = p_atual * 1.03, p_atual * 0.985
             
-            msg += f"\n📊 **{ticker}** | Preço: R$ {p_atual:.2f}\n👉 Ação: **{acao}** ({prob:.1f}%)\n🎯 Alvo: {alvo:.2f} | 🛡️ Stop: {stop:.2f}\n"
-            logs.append(f"✅ {ticker}")
+            msg += f"\n📊 **{ticker}** | Agora: R$ {p_atual:.2f}\n👉 **AÇÃO: {ordem}** ({prob:.1f}%)\n🎯 Alvo: {alvo:.2f} | 🛡️ Stop: {stop:.2f}\n"
+            logs.append(f"✅ {ticker}: OK")
+            
         except Exception as e:
             logs.append(f"❌ {ticker}: {str(e)}")
 
-    msg += f"\n📡 **STATUS DO SISTEMA:**\n" + "\n".join(logs)
+    msg += f"\n📡 **SITUAÇÃO DO MERCADO:**\n" + "\n".join(logs)
     requests.post(f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage", 
                   data={'chat_id': CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'})
 
 def gerar_grafico_historico(ticker):
     try:
-        # Puxa histórico detalhado dos últimos 60 dias
+        # Puxa dados detalhados para o gráfico web
         df = yf.download(ticker, period="60d", interval="1d", progress=False)
         if df.empty: return None
         
         fig = go.Figure()
-        # Gráfico de Candlestick para exibir valores de abertura, fechamento, etc
+        # Gráfico de Candlestick (Velas) com Datas e Valores
         fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
-                                     low=df['Low'], close=df['Close'], name='Histórico'))
+                                     low=df['Low'], close=df['Close'], name='Preço'))
         
         fig.update_layout(
-            title=f"Histórico Detalhado: {ticker}",
+            title=f"Histórico de Preços: {ticker}",
             template="plotly_dark",
             xaxis_rangeslider_visible=False,
-            height=400,
             yaxis_title="Valor (R$)",
-            xaxis_title="Data e Horário"
+            xaxis_title="Data da Negociação"
         )
         return fig
     except: return None
