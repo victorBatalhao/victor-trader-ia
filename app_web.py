@@ -5,57 +5,54 @@ import datetime
 import yfinance as yf
 from bot_trader import executar_analise_total, ACOES, gerar_grafico_interativo, NOME_ARQUIVO
 
+# Configuração da Página
 st.set_page_config(page_title="Victor Trader Pro", layout="wide", page_icon="📈")
 
-# Barra Lateral com Preços em Tempo Real
-st.sidebar.title("📡 Mercado em Tempo Real")
+# Sidebar com Monitor de Preços em tempo real
+st.sidebar.title("📡 Status da Conexão")
 for ticker in ACOES:
     try:
-        # Pega o preço de agora
-        tkt = yf.Ticker(ticker)
-        preco = tkt.history(period="1d")['Close'].iloc[-1]
-        st.sidebar.success(f"{ticker}: R$ {preco:.2f}")
+        # Busca o último preço disponível agora
+        price = yf.Ticker(ticker).fast_info['last_price']
+        st.sidebar.success(f"● {ticker}: R$ {price:.2f}")
     except:
-        st.sidebar.error(f"{ticker}: Offline (Aguardando)")
+        st.sidebar.error(f"○ {ticker}: Sem dados")
 
-# Painel Principal
-st.title("🚀 Victor Trader IA v3.2")
-st.subheader("Sistema Quantitativo de Alta Precisão")
+# Título e Ação
+st.title("🚀 Victor Trader IA v3.2.4")
+st.subheader("Painel de Controle e Inteligência Quantitativa")
 
-col_btn1, col_btn2 = st.columns(2)
-with col_btn1:
-    if st.button("📊 DISPARAR ANÁLISE COMPLETA", use_container_width=True):
-        with st.spinner("IA treinando modelos e verificando sinais..."):
-            executar_analise_total()
-            st.success("Relatório enviado ao Telegram!")
-            st.rerun()
-
-with col_btn2:
-    if st.button("🔄 RECARREGAR PAINEL", use_container_width=True):
+if st.button("📊 DISPARAR ANÁLISE COMPLETA AGORA", use_container_width=True):
+    with st.spinner("IA treinando modelos e validando sinais..."):
+        executar_analise_total()
+        st.success("Análise concluída! Verifique o Log de Integridade no Telegram.")
         st.rerun()
 
 st.divider()
 
-# Histórico de Performance (Tabela que você queria ver)
-st.subheader("📁 Histórico de Performance (CSV)")
+# Histórico de Performance e Download
+st.subheader("📁 Histórico e Backup de Dados")
 if os.path.isfile(NOME_ARQUIVO):
     df_hist = pd.read_csv(NOME_ARQUIVO)
-    st.dataframe(df_hist.tail(10), use_container_width=True)
+    st.write("Últimos registros salvos:")
+    st.dataframe(df_hist.tail(8), use_container_width=True)
     
+    # Botão de Download do CSV
+    csv = df_hist.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 BAIXAR BASE DE DADOS COMPLETA",
-        data=df_hist.to_csv(index=False).encode('utf-8'),
-        file_name=f"victor_trader_backup_{datetime.date.today()}.csv",
+        label="📥 BAIXAR PLANILHA COMPLETA (Backup)",
+        data=csv,
+        file_name=f"backup_ia_trader_{datetime.date.today()}.csv",
         mime="text/csv",
         use_container_width=True
     )
 else:
-    st.warning("Nenhum dado salvo. Execute uma análise para gerar o histórico.")
+    st.info("Aguardando a primeira análise de mercado para gerar a base de dados.")
 
 st.divider()
 
-# Gráficos Interativos
-st.subheader("📈 Visualização de Tendências")
+# Visualização de Gráficos (MA10 e Preço)
+st.subheader("📈 Análise Visual de Tendências")
 cols = st.columns(2)
 for i, ticker in enumerate(ACOES):
     with cols[i % 2]:
@@ -63,6 +60,7 @@ for i, ticker in enumerate(ACOES):
         if fig:
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info(f"Aguardando dados de mercado para {ticker}...")
+            st.warning(f"Dados gráficos de {ticker} temporariamente indisponíveis.")
 
-st.caption(f"Victor Trader IA | Versão Estável 3.2.3 | Atualizado em: {datetime.datetime.now().strftime('%H:%M:%S')}")
+st.divider()
+st.caption(f"Victor Trader IA | Versão 3.2.4 Estável | Data: {datetime.date.today()}")
