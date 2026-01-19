@@ -1,6 +1,5 @@
 # =============================
-# VICTOR TRADER IA v7.0 PRO
-# Arquitetura Quant Profissional
+# VICTOR TRADER IA v7.1 PRO (FIXED)
 # =============================
 
 import streamlit as st
@@ -16,11 +15,22 @@ from sklearn.ensemble import RandomForestClassifier
 # =============================
 # CONFIGURAÇÕES
 # =============================
-TOKEN_TELEGRAM = "SEU_TOKEN"
-CHAT_ID = "SEU_CHAT_ID"
+TOKEN_TELEGRAM = "SEU_TOKEN_AQUI"
+CHAT_ID = "SEU_CHAT_ID_AQUI"
+
 ACOES = ["PETR4.SA","VALE3.SA","ITUB4.SA","KLBN11.SA","BBAS3.SA","TAEE11.SA"]
 ARQ_CSV = "historico_victor_ia.csv"
 CAPITAL_INICIAL = 10000
+
+# =============================
+# STREAMLIT PAGE
+# =============================
+st.set_page_config(page_title="Victor Trader IA v7.1", layout="wide")
+
+# =============================
+# SIDEBAR
+# =============================
+st.sidebar.title("📡 Status do Mercado")
 
 # =============================
 # DADOS
@@ -32,6 +42,13 @@ def buscar_dados(ticker):
         df.columns = df.columns.get_level_values(0)
     return df.dropna()
 
+for acao in ACOES:
+    df_tmp = buscar_dados(acao)
+    if not df_tmp.empty:
+        st.sidebar.success(f"{acao}: Online")
+    else:
+        st.sidebar.error(f"{acao}: Offline")
+
 # =============================
 # FEATURES + IA
 # =============================
@@ -41,10 +58,14 @@ def motor_ia(df):
     df['Vol'] = df['Retorno'].rolling(20).std()
     df['MM9'] = df['Close'].rolling(9).mean()
     df['MM21'] = df['Close'].rolling(21).mean()
-    df['RSI'] = 100 - (100/(1+(df['Close'].diff().clip(lower=0).rolling(14).mean() / abs(df['Close'].diff().clip(upper=0).rolling(14).mean()))))
+    delta = df['Close'].diff()
+    ganho = delta.clip(lower=0).rolling(14).mean()
+    perda = abs(delta.clip(upper=0).rolling(14).mean())
+    rs = ganho / perda
+    df['RSI'] = 100 - (100/(1+rs))
     df['Alvo'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-    dados = df.dropna()
 
+    dados = df.dropna()
     X = dados[['Close','Retorno','Vol','MM9','MM21','RSI']]
     y = dados['Alvo']
 
@@ -62,8 +83,7 @@ def motor_ia(df):
 def regra_tecnica(df):
     if df['MM9'].iloc[-1] > df['MM21'].iloc[-1] and df['RSI'].iloc[-1] < 70:
         return 1
-    else:
-        return 0
+    return 0
 
 # =============================
 # ESTRATÉGIA HÍBRIDA
@@ -71,9 +91,7 @@ def regra_tecnica(df):
 def estrategia_hibrida(df):
     pred, prob, df = motor_ia(df)
     regra = regra_tecnica(df)
-
     final = 1 if pred == 1 and regra == 1 else 0
-
     return final, prob, df
 
 # =============================
@@ -84,13 +102,14 @@ def backtest(df):
     pico = capital
     drawdowns = []
 
-    for i in range(50, len(df)-1):
+    for i in range(60, len(df)-1):
         sub = df.iloc[:i]
         sinal, prob, _ = estrategia_hibrida(sub)
         retorno = (df['Close'].iloc[i+1] - df['Close'].iloc[i]) / df['Close'].iloc[i]
 
         if sinal == 1:
             capital *= (1 + retorno)
+
         pico = max(pico, capital)
         drawdowns.append((capital - pico) / pico)
 
@@ -100,7 +119,6 @@ def backtest(df):
 # SIMULADOR DE CARTEIRA
 # =============================
 def simular_carteira():
-    capital = CAPITAL_INICIAL
     resultados = []
     for acao in ACOES:
         df = buscar_dados(acao)
@@ -109,11 +127,11 @@ def simular_carteira():
     return pd.DataFrame(resultados, columns=["Ativo","Capital_Final","Drawdown_%"])
 
 # =============================
-# RELATÓRIO PREMIUM
+# RELATÓRIO
 # =============================
 def gerar_relatorio():
-    texto = "📊 RELATÓRIO VICTOR TRADER PRO\n"
-    texto += f"📅 {datetime.datetime.now().strftime('%d/%m/%Y')}\n"
+    texto = "RELATORIO VICTOR TRADER IA\n"
+    texto += f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
 
     for acao in ACOES:
         df = buscar_dados(acao)
@@ -128,31 +146,31 @@ def gerar_relatorio():
 # TELEGRAM
 # =============================
 def enviar_telegram(msg):
+    if "SEU_TOKEN" in TOKEN_TELEGRAM:
+        return
     url = f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage"
     requests.post(url, data={'chat_id': CHAT_ID, 'text': msg})
 
 # =============================
-# STREAMLIT
+# INTERFACE
 # =============================
-st.set_page_config("Victor Trader IA v7.0 PRO", layout="wide")
+st.title("🚀 Victor Trader IA v7.1 PRO")
 
-st.title("🚀 Victor Trader IA v7.0 PRO")
-
-if st.button("📡 GERAR RELATÓRIO PREMIUM E ENVIAR"):
+if st.button("📡 GERAR RELATÓRIO E ENVIAR TELEGRAM"):
     rel = gerar_relatorio()
     enviar_telegram(rel)
-    st.success("Relatório enviado com sucesso.")
+    st.success("Relatório gerado.")
+    st.text(rel)
 
 st.divider()
 
-st.subheader("📈 Backtest & Carteira")
-
+st.subheader("📊 Simulador de Carteira")
 carteira = simular_carteira()
 st.dataframe(carteira, use_container_width=True)
 
 st.divider()
 
-st.subheader("📉 Gráficos")
+st.subheader("📈 Gráficos")
 cols = st.columns(2)
 for i, acao in enumerate(ACOES):
     with cols[i % 2]:
